@@ -1,11 +1,13 @@
 module uart(
 	input                       clk,
 	input                       rst_n,
+    input                       user_btn,
 	input                       uart_rx,
 	output                      uart_tx,
 	output reg [5:0] 			led,
 	// /*   Signal to/from the W5300 chip   */
 	input 						int_n,
+    output                      w5300_rst,
 	output wire [9:0] 			addr,       //  10-bit Address bus
 	output wire 				wr,			//  write enable
 	output wire					rd,			//  read enable
