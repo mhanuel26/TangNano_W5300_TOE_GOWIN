@@ -1,18 +1,16 @@
 module uart(
-	input                       clk,
-	input                       rst_n,
-    input                       user_btn,
-	input                       uart_rx,
-	output                      uart_tx,
-	output reg [5:0] 			led,
-	// /*   Signal to/from the W5300 chip   */
-	input 						int_n,
-    output                      w5300_rst,
-	output wire [9:0] 			addr,       //  10-bit Address bus
-	output wire 				wr,			//  write enable
-	output wire					rd,			//  read enable
-	output wire  				cs,			//  chip enable
-	inout wire [7:0]  			data_bus	// 8 bit data bus
+	input						clk,
+	input						rst_n,
+	input						user_btn,
+	input						uart_rx,
+	output						uart_tx,
+	output reg [5:0]			led,
+	input						int_n,
+	output wire [9:0]			addr,			//  10-bit Address bus
+	output wire					wr,				//  write enable
+	output wire					rd,				//  read enable
+	output wire					cs,				//  chip enable
+	inout wire [7:0]			data_bus		// 8 bit data bus
 );
 
 
@@ -21,19 +19,19 @@ wire   			   	 			data_rdy;
 wire   							wr_done;
 wire 							busy;
 wire  							start;
-wire [7:0]          			data_w2f;           	//  It is the 8-bit registered data retrieved from the W5300 Ethernet (the -w2f suffix stands for W5300 to FPGA
-wire [7:0]          			data_f2w;             	//  Data to be writteb in the W5300 chip
+wire [7:0]						data_w2f;           	//  It is the 8-bit registered data retrieved from the W5300 Ethernet (the -w2f suffix stands for W5300 to FPGA
+wire [7:0]						data_f2w;             	//  Data to be writteb in the W5300 chip
 
-parameter                       CLK_FRE  = 27;			// MHz
-parameter                       UART_FRE = 115200;		// bps
+parameter						CLK_FRE  = 27;			// MHz
+parameter						UART_FRE = 115200;		// bps
 
-localparam                      IDLE =  0;
-localparam                      SEND =  1;   
+localparam						IDLE =  0;
+localparam						SEND =  1;   
 localparam						PROCESS_RX = 2;
 localparam						PROCESS_ADDR_READ = 3;
 localparam						PROCESS_ADDR_PRINT = 4;
-localparam                      INIT_ROUTINE = 5;
-localparam                      W5300_WRITE_REG = 6;
+localparam						INIT_ROUTINE = 5;
+localparam						W5300_WRITE_REG = 6;
 localparam						PROCESS_REG_PRINT = 7;
 localparam						PROCESS_REG_READ = 8;
 localparam						W5300_ISR_STATE = 9;
@@ -42,27 +40,46 @@ localparam						W5300_READ_SOCK_RECV_SIZE = 11;
 localparam						W5300_RECV_STATE = 12;
 localparam						W5300_RECV_PROCESS = 13;
 localparam						W5300_RECV_COMPLETE = 14;
+localparam						W5300_SEND_START = 15;
+localparam						W5300_SEND_CHECK_SIZE = 16;
+localparam						W5300_READ_SOCK_TMIT_SIZE = 17;
+localparam						W5300_SET_DEST_IP_PORT = 18;
+localparam						W5300_SEND_ADJ_SND_SIZE = 19;
+localparam						W5300_SEND_WRITE_FIFOR = 20;
+localparam						W5300_SEND_COMPLETED = 21;
+localparam						W5300_SET_SEND_CMD = 22;
+localparam						TEST_RESPONSE = 50;				// This state is just for testing some stuff
 
 localparam						CR = 8'b00001101;
-localparam						HELP = 8'h68;      		// h
-localparam						SET_W5300_ADDR = 8'h61;    // a
-localparam 						READ_W5300_REG = 8'h62;	// b
+localparam						HELP = 8'h68;      			// h
+localparam						SET_W5300_ADDR = 8'h61;    	// a
+localparam 						READ_W5300_REG = 8'h62;		// b
 localparam						INIT_W5300 = 8'h63;      	// c
-localparam						TEST = 8'h64;      		// d
+localparam						TEST = 8'h64;      			// d
 localparam						TEST2 = 8'h65;      		// e
-localparam						WRITE = 8'h66;     		// f
+localparam						WRITE = 8'h66;     			// f
 
-localparam                      ADDRESS_SIZE = 10;
+localparam						ADDRESS_SIZE = 10;
 localparam						DATA_SIZE = 8;
 localparam						DATA_SIZE_WORD = 16;
 
-// W5300 INIT ROUTINE STATES
+localparam						read_1 = 3'd0;
+localparam						read_2 = 3'd1;
+localparam						read_3 = 3'd2;
+
+// Initialization Sub-States
 localparam 						INIT_W5300_1 = 0;
 localparam 						INIT_W5300_2 = 1;
 localparam 						INIT_W5300_3 = 2;
 localparam 						INIT_W5300_4 = 3;
 localparam 						INIT_W5300_DONE = 4;
 localparam 						INIT_W5300_FAILURE = 5;
+// ISR sub-states
+localparam 						ISR_GET_IR = 3'd0;
+localparam 						ISR_GET_SN_IR = 3'd1;
+localparam 						ISR_CLEAR_SN_IR = 3'd2;
+localparam 						ISR_JUMP_INTO_RECV = 3'd3;
+localparam 						ISR_JUMP_INTO_SEND = 3'd4;
 // W5300 COMMON AND SOCKET REGISTER ADDRESSES
 localparam 						MR_REG = 10'h000;
 localparam 						IR_REG = 10'h002;
@@ -97,6 +114,21 @@ localparam 						S0_RX_FIFOR = 10'h230;
 localparam 						S1_RX_FIFOR = 10'h270;
 localparam 						S0_TX_FIFOR = 10'h22E;
 localparam 						S1_TX_FIFOR = 10'h26E;
+localparam 						S0_TX_FSR = 10'h224;
+localparam 						S1_TX_FSR = 10'h264;
+localparam 						S0_TX_FSR2 = 10'h226;
+localparam 						S1_TX_FSR2 = 10'h266;
+localparam 						S0_TX_DPORTR = 10'h212;
+localparam 						S1_TX_DPORTR = 10'h252;
+localparam 						S0_TX_DIPR = 10'h214;
+localparam 						S1_TX_DIPR = 10'h254;
+localparam 						S0_TX_DIPR2 = 10'h216;
+localparam 						S1_TX_DIPR2 = 10'h256;
+localparam 						S0_TX_WRSR = 10'h220;
+localparam 						S1_TX_WRSR = 10'h260;
+localparam 						S0_TX_WRSR2 = 10'h222;
+localparam 						S1_TX_WRSR2 = 10'h262;
+
 // BIT LOCATION OF INTERRUPT FLAG IN IR REGISTER
 localparam 						IPCF = 15;			// Ip Connflict Interrupt
 localparam 						DPUR = 14;			// Destination Port Unreachable
@@ -138,6 +170,15 @@ localparam 					    CR_RECV = {8'h00, 8'h40};
 // PACKET INFO FOR DIFFERENT PROTOCOLS
 // just udp for now
 localparam						UDP_PACKET_INFO_LEN = 8'd8;
+// definitions for Sn_IR interrupt flags
+localparam						PRECV = 7;
+localparam						PFAIL = 6;
+localparam						PNEXT = 5;
+localparam						SEND_OK = 4;
+localparam						TIMEOUT = 3;
+localparam						RECV = 2;
+localparam						DISCON = 1;
+localparam						CON = 0;
 
 // Source Ip address
 localparam                      SIPR0 = 8'd192;     //192.168.0.7
@@ -185,54 +226,65 @@ parameter 	READ_VALUE_STR = 16;
 reg [ READ_VALUE_STR  * 8 - 1:0] mem_value_hdr = {"Memory Value:",8'h0d,8'h0a};
 parameter 	READ_REG_STR = 24;
 reg [ READ_REG_STR  * 8 - 1:0] read_reg_hdr = {8'h0d,8'h0a,"Read W5300 Register:",8'h0d,8'h0a};
+parameter 	DATA_NUM_TEST = 17;
+reg [ DATA_NUM_TEST * 8 - 1:0] send_isr_done = {8'h0d,8'h0a,"SEND ISR DONE",8'h0d,8'h0a};
 
+localparam						MSG_RX_SIZE = 20;	
+localparam						MSG_TX_SIZE = 80;	
+localparam						MSG_BUF = 128;
 
-localparam						 MSG_RX_SIZE = 20;	
-localparam						 MSG_TX_SIZE = 80;	
-localparam						 MSG_BUF = 128;
+reg [7:0]						tx_data;
+reg								tx_data_valid;
+wire							tx_data_ready;
+reg [7:0]						tx_cnt;
+wire [7:0]						rx_data;
+wire							rx_data_valid;
+wire							rx_data_ready;
+reg [31:0]						wait_cnt;
+reg [7:0]						state;
+reg [7:0]						nextstate;
+reg [7:0]						ret2state;
+reg [7:0]						ret2nextstate;
 
-reg[7:0]                         tx_data;
-reg                              tx_data_valid;
-wire                             tx_data_ready;
-reg[7:0]                         tx_cnt;
-wire[7:0]                        rx_data;
-wire                             rx_data_valid;
-wire                             rx_data_ready;
-reg[31:0]                        wait_cnt;
-reg[3:0]                         state;
-reg[3:0]                         nextstate;
+reg [ADDRESS_SIZE-1:0]			address;
+wire [ADDRESS_SIZE-1:0]			address2;
+reg [7:0]						read_idx;
+wire [15:0]						W5300_16REG_RD;
+wire [15:0]						W5300_16REG_WR;
+reg [15:0]						data_16bits;
+reg [15:0]						w5300_regs [20:0];
+reg [4:0]						reg_cnt;
+reg [4:0]						reg_cnt_sent;
 
-reg [ADDRESS_SIZE-1:0]           address;
-wire [ADDRESS_SIZE-1:0] 		 address2;
-reg [7:0]           			 read_idx;
-wire [15:0]						 W5300_16REG_RD;
-wire [15:0]						 W5300_16REG_WR;
-reg [15:0]  				     data_16bits;
-reg [15:0] 						 w5300_regs [20:0];
-reg [4:0]						 reg_cnt;
-reg [4:0]						 reg_cnt_sent;
+reg [7:0]						message [MSG_RX_SIZE - 1:0];
+reg [7:0]						message_tx [MSG_TX_SIZE - 1:0];
+reg [16:0]						socket_recv_value;
+reg [7:0]						message_w5300_rx[MSG_BUF - 1: 0];
+reg [7:0]						w5300_rx_index;
+reg [7:0]						rx_index;
+reg [7:0]						rx_wr_index;
+reg [7:0]						msg_size;
+integer							i;        
+reg								idle_to_next_state;
+reg								start_in;	
+wire							reg_rdy;
+wire							write_done;
 
-reg [7:0] 						 message [MSG_RX_SIZE - 1:0];
-reg [7:0] 						 message_tx [MSG_TX_SIZE - 1:0];
-reg [7:0]						 message_w5300_rx[MSG_BUF - 1: 0];
-reg [7:0]						 w5300_rx_index;
-reg [7:0]                  	     rx_index;
-reg [7:0]                  	     tx_wr_index;
-reg [7:0]                  	     msg_size;
-integer 						 i;        
-reg  							 idle_to_next_state;
-reg								 start_in;	
-wire 							 reg_rdy;
-wire  							 write_done;
-
-reg [2:0]					     socket_init_state_udp;
-reg [7:0]						 init_dly_cnt;
-reg [2:0]						 init_retry_cnt;
-reg [1:0]						 get_recv_done;
-reg 							 send_serial_flag;
-reg 							 get_size_nibble;
-reg [1:0]						 get_interrupt_socket;
-reg [16:0]						 socket_recv_value;
+reg [2:0]						socket_init_state_udp;
+reg [7:0]						init_dly_cnt;
+reg [2:0]						init_retry_cnt;
+reg [1:0]						get_recv_done;
+reg								send_serial_flag;
+reg								get_size_nibble;
+reg [2:0]						get_interrupt_socket;
+reg [7:0]						dest_ip [3:0];
+reg [15:0]						dest_port;
+reg [7:0]						message_w5300_tx[MSG_BUF - 1: 0];
+reg [7:0]						tx_wr_index;
+reg [16:0]						socket_tmit_send_size;
+reg [16:0]						socket_tmit_write_size;
+reg [16:0]						socket_tmit_free_size;
+reg [7:0]						wait_for_tx_free_space;
 
 assign rx_data_ready = 1'b1;
 assign W5300_16REG_WR = data_16bits;
@@ -256,7 +308,7 @@ begin
 	begin
 		send_serial_flag <= 1'b0;
 		get_size_nibble <= 1'b0;
-		tx_wr_index <= 8'd0;
+		rx_wr_index <= 8'd0;
 		init_dly_cnt <= 8'd0;
 		init_retry_cnt <= 3'd0;
 		reg_cnt <= 5'd0;				
@@ -294,8 +346,8 @@ begin
 			end
 			else if(int_n == 1'b0)			// if there is a w5300 interrupt we need to service it 
 			begin
-				state <= W5300_ISR_STATE;		// service the interrupt
-				get_interrupt_socket <= 2'd0;
+				state <= W5300_ISR_STATE;				// service the interrupt
+				get_interrupt_socket <= ISR_GET_IR;		// Init sub-state is to get IR reg
 			end
 		end
 		SEND:
@@ -363,16 +415,32 @@ begin
 				nextstate <= PROCESS_RX;
 			end
 			TEST:
+			// testing quickly here the UDP send, this will probably go away later - only for test
 			begin
-				address <= 10'b1100111000;
-				start_in <= 1'b1;
-				rw <= 1'b1;
-				if(reg_rdy == 1'b1)
-				begin
-					start_in <= 1'b0;
-					address <= address2;
-					state <= IDLE;
-				end
+				// hardwire here the socket  destination port and ip for testing
+				dest_port <= {8'h13, 8'h88};   // Set the destination port for sending UDP packet
+				dest_ip[0] <= 8'hC0;
+				dest_ip[1] <= 8'hA8;
+				dest_ip[2] <= 8'h00;
+				dest_ip[3] <= 8'h01;
+				// set the message to send 
+				message_w5300_tx[0] <= 8'h48;   // DATA Byte Index 0  H
+				message_w5300_tx[1] <= 8'h45;   // DATA Byte Index 1  E
+				message_w5300_tx[2] <= 8'h4C;   // DATA Byte Index 2  L
+				message_w5300_tx[3] <= 8'h4C;   // DATA Byte Index 3  L
+				message_w5300_tx[4] <= 8'h4F;   // DATA Byte Index 4  O
+				message_w5300_tx[5] <= 8'h20;   // DATA Byte Index 5
+				message_w5300_tx[6] <= 8'h57;   // DATA Byte Index 6  W
+				message_w5300_tx[7] <= 8'h4F;   // DATA Byte Index 7  O
+				message_w5300_tx[8] <= 8'h52;   // DATA Byte Index 8  R
+				message_w5300_tx[9] <= 8'h4C;   // DATA Byte Index 9  L
+				message_w5300_tx[10] <= 8'h44;   // DATA Byte Index 10  D
+				message_w5300_tx[11] <= 8'h0D;   // DATA Byte Index 11  CR
+				socket_tmit_send_size <= 17'd12;
+				state <= W5300_SEND_START;
+				ret2state <= TEST_RESPONSE;
+				// ret2nextstate <= PROCESS_RX;	// this is not used in this context
+				idle_to_next_state <= 1'b0;
 			end
 			TEST2:
 			begin
@@ -417,6 +485,16 @@ begin
 				state <= PROCESS_RX;
 			end
 			endcase
+		end
+		TEST_RESPONSE:
+		begin
+			for(i=0; i < DATA_NUM_TEST ; i = i + 1) begin
+				message_tx[i] <= send_isr_done[i * 8 +: 8];
+			end		
+			msg_size <= DATA_NUM_TEST;
+			state <= SEND; 
+			idle_to_next_state = 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
+			nextstate <= PROCESS_RX;
 		end
 		PROCESS_REG_READ:
 		begin
@@ -514,17 +592,19 @@ begin
 			
 			case(init_w5300_state)
 			INIT_W5300_1:
+			// SET IMR Register
 			begin
 				idle_to_next_state <= 1'b0;
-				init_dly_cnt <= 8'd0;					//init the counter to create a delay or wait period
+				init_dly_cnt <= 8'd0;					// Init the counter to create a delay or wait period
 				init_retry_cnt <= 3'd0;
 				address <= IMR_REG;
 				data_16bits <= 16'd0;
-				data_16bits[S0_INT] <= 1'b1;			// Interrupt on Socket 0
+				data_16bits[S0_INT] <= 1'b1;			// Configure IMR_REG to get Interrupt on Socket 0
 				state <= W5300_WRITE_REG;
 				init_w5300_state <= INIT_W5300_2;
 			end
-			INIT_W5300_2:								//  					
+			INIT_W5300_2:
+			// Set SHAR Register			
 			begin
 				address <= SHAR_REG;
 				data_16bits <= {SHAR0, SHAR1};			// first register is set here
@@ -537,6 +617,7 @@ begin
 			end
 			INIT_W5300_3:
 			begin
+				// Set GAR, SUBR, SIPR Registers
 				address <= GAR_REG;
 				data_16bits <= {GAR0, GAR1};
 				w5300_regs[0] <= {GAR2, GAR3};
@@ -569,8 +650,9 @@ begin
 				end
 				SOCKET_INTERRUPT_MASK:
 				begin
+					// Set S0_IR Register
 					address <= S0_IMR;
-					data_16bits <= {8'h00, 8'b00000100};		// Enable RECV interrupt
+					data_16bits <= {8'h00, 8'b00010100};		// Enable RECV and SENDOK interrupt for Socket 0
 					reg_cnt <= 5'd0;							// only send one register with data contained in data_16bits
 					state <= W5300_WRITE_REG;
 					socket_init_state_udp <= SOCKET_PORT;
@@ -578,7 +660,7 @@ begin
 				SOCKET_PORT:
 				begin
 					address <= S0_PORTR;
-					data_16bits <= {8'h13, 8'h88};   // Init socket in UDP mode  Sn_MR=0x02
+					data_16bits <= {8'h13, 8'h88};   // Set the source port for UDP socket
 					reg_cnt <= 5'd0;
 					state <= W5300_WRITE_REG;
 					socket_init_state_udp <= SOCKET_READ_SSR;
@@ -588,7 +670,7 @@ begin
 					// configure address and change to read register state
 					address <= S0_SSR;  // read socket status register
 					state <= PROCESS_REG_READ;
-					idle_to_next_state <= 1'b1;  // next state after PROCESS_REG_READ is given by next_state
+					idle_to_next_state <= 1'b1;  // next state after PROCESS_REG_READ is given by nextstate register
 					nextstate <= INIT_ROUTINE;		// need to come back to init routine
 					// change to wait state within init routine
 					socket_init_state_udp <= SOCKET_WAIT_SSR;
@@ -678,23 +760,21 @@ begin
 		end
 		W5300_ISR_STATE:
 		begin
-			if(get_interrupt_socket == 2'd0) begin
+			if(get_interrupt_socket == ISR_GET_IR) begin
 				// get the value of IR register
-				get_interrupt_socket <= 2'd1;		// check for socket
+				get_interrupt_socket <= ISR_GET_SN_IR;		// check for socket interrupt number
 				idle_to_next_state <= 1'b1;  		// return to this state after fetching register
 				address <= IR_REG;					// interrupt register
 				state <= PROCESS_REG_READ;			// PROCESS_REG_READ is the state to read a register
-				nextstate <= W5300_ISR_STATE;
+				nextstate <= W5300_ISR_STATE;		// this state
 			end
-			else if(get_interrupt_socket == 2'd1) begin
-				if(W5300_16REG_RD[S0_INT] == 1'b1) begin				// if socket 0 interrupt
-					get_interrupt_socket <= 2'd2;				// for this demo only the RX interrupt is present so far on socket 0
-					address <= S0_IR;
-					data_16bits <= {8'h00, 8'b00000100};		// Clear the RECV interrupt
-					reg_cnt <= 5'd0;							// only send one register with data contained in data_16bits
-					idle_to_next_state <= 1'b1;  				// return to this state after writing register
-					state <= W5300_WRITE_REG;
-					nextstate <= W5300_ISR_STATE;
+			else if(get_interrupt_socket == ISR_GET_SN_IR) begin
+				if(W5300_16REG_RD[0] == 1'b1) begin		// if socket 0 interrupt
+					get_interrupt_socket <= ISR_CLEAR_SN_IR;		// start a read on the S0_IR register here
+					address <= S0_IR;					// S0_IR address
+					idle_to_next_state <= 1'b1;  		// return to this state after fetching register
+					state <= PROCESS_REG_READ;			// PROCESS_REG_READ is the state to read a register
+					nextstate <= W5300_ISR_STATE;		// this state
 				end 
 				else begin
 					idle_to_next_state <= 1'b0;
@@ -702,10 +782,37 @@ begin
 					nextstate <= PROCESS_RX;
 				end
 			end
-			else if(get_interrupt_socket == 2'd2) begin
-				// we should here look at the different interrupts that might be active at the same time
-				get_recv_done <= 2'b0;		// state flag used to signal if register S0_RX_RSR has been read already
-				state <= W5300_SOCK_RECV_ISR; // for now accept that we only have active recv interrupt
+			else if(get_interrupt_socket == ISR_CLEAR_SN_IR) begin
+				// we should look here at the different interrupts that might be active at the same time
+				if(W5300_16REG_RD[RECV] == 1'b1) begin			// if socket 0 RECV interrupt
+					// clear the RECV interrupt flag in S0_IR
+					address <= S0_IR;
+					data_16bits <= {8'h00, 8'b00000100};		// Clear the RECV interrupt
+					reg_cnt <= 5'd0;							// only send one register with data contained in data_16bits
+					idle_to_next_state <= 1'b1;  				// return to this state after writing register
+					state <= W5300_WRITE_REG;					// write state
+					nextstate <= W5300_ISR_STATE;				// this state
+					get_interrupt_socket <= ISR_JUMP_INTO_RECV;				// jump into RECV ISR after clearing S0_IR RECV flag			
+				end
+				else if(W5300_16REG_RD[SEND_OK] == 1'b1) begin			// if socket 0 SENDOK interrupt
+					// clear the SENDOK interrupt flag in S0_IR
+					address <= S0_IR;
+					data_16bits <= {8'h00, 8'b00010000};		// Clear the SENDOK interrupt
+					reg_cnt <= 5'd0;							// only send one register with data contained in data_16bits
+					idle_to_next_state <= 1'b1;  				// return to this state after writing register
+					state <= W5300_WRITE_REG;					// write state
+					nextstate <= W5300_ISR_STATE;				// this state
+					get_interrupt_socket <= ISR_JUMP_INTO_SEND;				// jump into SENDOK ISR after clearing S0_IR RECV flag	
+				end
+			end
+			else if(get_interrupt_socket == ISR_JUMP_INTO_RECV) begin
+				get_recv_done <= 2'b0;				// state flag used to signal if register S0_RX_RSR has been read already
+				state <= W5300_SOCK_RECV_ISR; 		// for now accept that we only have active recv interrupt
+			end
+			else if(get_interrupt_socket == ISR_JUMP_INTO_SEND) begin
+				// the transmit interrupt need to jump to return state configured when jumping to SEND state
+				state <= ret2state;
+				nextstate <= ret2nextstate;
 			end
 		end
 		W5300_SOCK_RECV_ISR:
@@ -749,12 +856,13 @@ begin
 		W5300_RECV_STATE:
 		begin
 			if(socket_recv_value == 17'd0) begin
+				// No more bytes left case
 				message_w5300_rx[w5300_rx_index] <= W5300_16REG_RD[15:8];
 				message_w5300_rx[w5300_rx_index+8'd1] <= W5300_16REG_RD[7:0];
 				w5300_rx_index <= w5300_rx_index + 8'd2;
 				state <= W5300_RECV_PROCESS;
 				send_serial_flag <= 1'b0;
-				tx_wr_index <= 8'd0;
+				rx_wr_index <= 8'd0;
 			end
 			else begin
 				if(idle_to_next_state == 1'b0) begin	// only 0 when comming here from ISR or need to fetch more data
@@ -765,6 +873,7 @@ begin
 				end 
 				else begin
 					if(w5300_rx_index < MSG_BUF - 1) begin
+						// every time FPGA fetch a WORD from FIFOR
 						message_w5300_rx[w5300_rx_index] <= W5300_16REG_RD[15:8];
 						message_w5300_rx[w5300_rx_index+8'd1] <= W5300_16REG_RD[7:0];
 						w5300_rx_index <= w5300_rx_index + 8'd2;
@@ -780,7 +889,7 @@ begin
 						w5300_rx_index <= w5300_rx_index + 8'd2;
 						state <= W5300_RECV_PROCESS;
 						send_serial_flag <= 1'b0;
-						tx_wr_index <= 8'd0;
+						rx_wr_index <= 8'd0;
 					end
 				end
 			end
@@ -791,23 +900,23 @@ begin
 			1'b0:
 			begin
 				// do something here with packets like sending it out of serial port
-				if(tx_wr_index > w5300_rx_index - UDP_PACKET_INFO_LEN) begin				// let's hardwired this for now to test 
+				if(rx_wr_index > w5300_rx_index - UDP_PACKET_INFO_LEN) begin				// let's hardwired this for now to test 
 					send_serial_flag <= 1'b1;
 					msg_size <= w5300_rx_index - UDP_PACKET_INFO_LEN;
-                    tx_cnt <= 8'd0;
+					tx_cnt <= 8'd0;
 					state <= SEND;						// go to the SEND state
 					idle_to_next_state <= 1'b1;			// signal that we need to come back to this state
 					nextstate <= W5300_RECV_PROCESS;
 				end
 				else begin 
-					message_tx[tx_wr_index] <= message_w5300_rx[tx_wr_index + UDP_PACKET_INFO_LEN];
-					tx_wr_index <= tx_wr_index + 1'b1;
+					message_tx[rx_wr_index] <= message_w5300_rx[rx_wr_index + UDP_PACKET_INFO_LEN];
+					rx_wr_index <= rx_wr_index + 1'b1;
 				end
 			end
 			1'b1:
 			begin
 				w5300_rx_index <= 8'd0;
-				tx_wr_index <= 8'd0;
+				rx_wr_index <= 8'd0;
 				idle_to_next_state <= 1'b0;		// signal in this state that we need to first fetch before read
 				if(socket_recv_value != 17'd0) begin
 					state <= W5300_RECV_STATE;
@@ -827,6 +936,122 @@ begin
 			msg_size <= DATA_NUM_RECV_DONE;
 			state <= SEND;
 			nextstate <= IDLE;
+		end
+		W5300_SEND_START:									
+		// before moving to this state idle_to_next_state need to be zero and the calling state should be saved to ret2state
+		// For this state we need to have setup the Destination IP and Destination PORT in our registers, i.e.
+		// dest_port <= {8'h13, 8'h88}; // Set the destination port for UDP socket
+		// 
+		begin
+			if(idle_to_next_state == 1'b0) begin
+				get_size_nibble <= 1'b0;
+				state <= W5300_READ_SOCK_TMIT_SIZE;
+			end
+			else if(idle_to_next_state == 1'b1) begin
+				socket_tmit_free_size[15:0] <= W5300_16REG_RD;		// GET full number here for available transmit length in memory
+				wait_for_tx_free_space <= 8'd0;
+				state <= W5300_SEND_CHECK_SIZE;
+			end
+		end
+		W5300_SEND_CHECK_SIZE:
+		begin 
+			if(socket_tmit_free_size < socket_tmit_send_size) begin
+				if(wait_for_tx_free_space == 100) begin
+					get_size_nibble <= 1'b0;
+					state <= W5300_READ_SOCK_TMIT_SIZE;		// if there is no available space keep querying the size
+				end
+				else
+				begin
+					wait_for_tx_free_space <= wait_for_tx_free_space + 8'd1;
+				end
+			end 
+			else 
+			begin
+				state <= W5300_SET_DEST_IP_PORT;
+				idle_to_next_state <= 1'b0; 
+				get_size_nibble <= 1'b0;
+			end
+		end
+		W5300_READ_SOCK_TMIT_SIZE:
+		begin
+			if(get_size_nibble == 1'b0) begin
+				socket_tmit_free_size <= 17'd0;
+				get_size_nibble <= 1'b1;
+				idle_to_next_state <= 1'b1;  		// return to this state after fetching register
+				address <= S0_TX_FSR;				// register contains the free size available in TX memory of socket
+				state <= PROCESS_REG_READ;			//PROCESS_REG_READ is the state to read a register
+				nextstate <= W5300_READ_SOCK_TMIT_SIZE;
+			end
+			else if(get_size_nibble == 1'b1)begin
+				socket_tmit_free_size[16] <= W5300_16REG_RD[0];		// assign the bit 0 of S0_RX_RSR to MSB bit of sockeet received size
+				idle_to_next_state <= 1'b1;  		// this will just signal to get full size in state W5300_SEND_START
+				address <= S0_TX_FSR2;				// register contains the received size
+				state <= PROCESS_REG_READ;			// PROCESS_REG_READ is the state to read a register
+				nextstate <= W5300_SEND_START;				
+			end
+		end
+		W5300_SET_DEST_IP_PORT:
+		begin
+			address <= S0_TX_DPORTR;
+			data_16bits <= dest_port;  // Set the destination port for UDP socket
+			// since register address are in contiguous address we can keep adding values for Destination IP address
+			w5300_regs[0] <= {dest_ip[0], dest_ip[1]};		// DIPR register, dest_ip[0] contains highest octet of dest ip address
+			w5300_regs[1] <= {dest_ip[2], dest_ip[3]};		// DIPR2 register, dest_ip[3 contains the less significant octet of destination IP address.
+			reg_cnt <= 5'd2;						// we need to send two more registers
+			reg_cnt_sent <= 5'd0;					// Start sending Index 0 of w5300_regs
+			idle_to_next_state <= 1'b1;  				// return to this state after writing register
+			state <= W5300_WRITE_REG;
+			nextstate <= W5300_SEND_ADJ_SND_SIZE;	// size adjust is initiated here and finish on this next state
+			// calculate the write count of Sn_TX_FIFOR for odd numbers
+			if(socket_tmit_send_size[0] == 1'b1) begin	// if odd size
+				socket_tmit_write_size <= socket_tmit_send_size + 17'd1;
+			end
+		end
+		W5300_SEND_ADJ_SND_SIZE:
+		begin
+			socket_tmit_write_size <= socket_tmit_send_size >> 1;
+			idle_to_next_state <= 1'b0;
+			state <= W5300_SEND_WRITE_FIFOR;
+			tx_wr_index <= 8'd0;
+		end
+		W5300_SEND_WRITE_FIFOR:
+		begin
+			if(socket_tmit_write_size == 17'd0) begin
+				address <= S0_TX_WRSR;
+				data_16bits <= {15'd0, socket_tmit_send_size[16]};
+				w5300_regs[0] <= socket_tmit_send_size[15:0];
+				reg_cnt <= 5'd1;						// we need to send one more register for WRITE SIZE REGISTER (17 bits)
+				reg_cnt_sent <= 5'd0;					// Start sending Index 0 of w5300_regs
+				idle_to_next_state <= 1'b1;
+				state <= W5300_WRITE_REG;
+				nextstate <= W5300_SET_SEND_CMD;
+			end
+			else begin
+				address <= S0_TX_FIFOR;										// write always to FIFO register 
+				data_16bits[7:0] <= message_w5300_tx[tx_wr_index + 8'd1];		// set lower nibble of 16 bit FIFO register to next byte in w5300 TX temp buffer
+				data_16bits[15:8] <= message_w5300_tx[tx_wr_index];			// set lower nibble of 16 bit FIFO register
+				socket_tmit_write_size <= socket_tmit_write_size - 17'd1;
+				tx_wr_index <= tx_wr_index + 8'd2;
+				idle_to_next_state <= 1'b1;
+				state <= W5300_WRITE_REG;
+				nextstate <= W5300_SEND_WRITE_FIFOR;
+			end
+		end
+		W5300_SET_SEND_CMD:
+		begin
+			address <= S0_CR;
+			data_16bits <= CR_SEND;			// set SEND command in S0_CR, will transmit data of size given by S0_TX_WRSR
+			reg_cnt <= 5'd0;						
+			reg_cnt_sent <= 5'd0;			// Start sending Index 0 of w5300_regs
+			idle_to_next_state <= 1'b1;
+			state <= W5300_WRITE_REG;
+			nextstate <= W5300_SEND_COMPLETED;
+		end
+		W5300_SEND_COMPLETED:
+		begin
+			idle_to_next_state <= 1'b0;
+			state <= IDLE;					// return to our original state before sending UDP packet
+			nextstate <= PROCESS_RX;
 		end
 		default:
 			state <= IDLE;
