@@ -115,7 +115,7 @@ module uart_top_tb ();
 			reset <= 1'b1;
 			#10000
 
-			test_case = CASE02;					// change here the test case
+			test_case = CASE01;					// change here the test case
 			@(posedge clk);
 
 			case(test_case)
@@ -179,37 +179,39 @@ module uart_top_tb ();
 					// @(posedge clk);
 					// UART_WRITE_BYTE(8'h0D);    // ENTER KEY
 
-					// set the w5300 register contents here for our test bench      
+					// set the w5300 register contents here for our test bench
 					@(posedge clk);
 					nibble <= 1'b0;
 					data_bus_idx <= 8'd0;
 					// SET size of packet for UDP. UDP length <8> + DATA length
-					data_bus_16[0] <= 8'h00;   // IR_REG0
-					data_bus_16[1] <= 8'h01;   // IR_REG1   Bit 0 is S0_INT
-					data_bus_16[2] <= 8'h00;   // S0_RX_RSR0
-					data_bus_16[3] <= 8'h00;   // S0_RX_RSR1
-					data_bus_16[4] <= 8'h00;   // S0_RX_RSR2
-					data_bus_16[5] <= 8'h12;   // S0_RX_RSR3   // SIZE = UDP <8> + DATA <10>
-					data_bus_16[6] <= 8'hC0;   // UDP Byte Index 0  UDP DESTINATION IP
-					data_bus_16[7] <= 8'hA8;   // UDP Byte Index 1
-					data_bus_16[8] <= 8'h00;   // UDP Byte Index 2
-					data_bus_16[9] <= 8'h01;   // UDP Byte Index 3
-					data_bus_16[10] <= 8'h13;   // UDP Byte Index 4   UDP DESTINATION PORT  
-					data_bus_16[11] <= 8'h88;   // UDP Byte Index 5
-					data_bus_16[12] <= 8'h00;   // UDP Byte Index 6
-					data_bus_16[13] <= 8'h0A;   // UDP Byte Index 7
-					data_bus_16[14] <= 8'h48;   // DATA Byte Index 0  H
-					data_bus_16[15] <= 8'h45;   // DATA Byte Index 1  E
-					data_bus_16[16] <= 8'h4C;   // DATA Byte Index 2  L
-					data_bus_16[17] <= 8'h4C;   // DATA Byte Index 3  L
-					data_bus_16[18] <= 8'h4F;   // DATA Byte Index 4  O
-					data_bus_16[19] <= 8'h20;   // DATA Byte Index 5
-					data_bus_16[20] <= 8'h57;   // DATA Byte Index 6  W
-					data_bus_16[21] <= 8'h4F;   // DATA Byte Index 7  O
-					data_bus_16[22] <= 8'h52;   // DATA Byte Index 8  R
-					data_bus_16[23] <= 8'h4C;   // DATA Byte Index 9  L
-					data_bus_16[24] <= 8'h44;   // DATA Byte Index 10  D
-					data_bus_16[25] <= 8'h0D;   // DATA Byte Index 11  CR
+					data_bus_16[0] <= 8'h00;   		// IR_REG0
+					data_bus_16[1] <= 8'h01;   		// IR_REG1   Bit 0 is S0_INT
+					data_bus_16[2] <= 8'h00;   		// S0_IR_REG0
+					data_bus_16[3] <= 8'b00000100;	// S0_IR_REG1   Bit 0 is RECV interrupt					
+					data_bus_16[4] <= 8'h00;   		// S0_RX_RSR0
+					data_bus_16[5] <= 8'h00;   		// S0_RX_RSR1
+					data_bus_16[6] <= 8'h00;   		// S0_RX_RSR2
+					data_bus_16[7] <= 8'h12;   		// S0_RX_RSR3   // SIZE = UDP <8> + DATA <10>
+					data_bus_16[8] <= 8'hC0;   		// UDP Byte Index 0  UDP DESTINATION IP
+					data_bus_16[9] <= 8'hA8;   		// UDP Byte Index 1
+					data_bus_16[10] <= 8'h00;   	// UDP Byte Index 2
+					data_bus_16[11] <= 8'h01;   	// UDP Byte Index 3
+					data_bus_16[12] <= 8'h13;   	// UDP Byte Index 4   UDP DESTINATION PORT  
+					data_bus_16[13] <= 8'h88;   	// UDP Byte Index 5
+					data_bus_16[14] <= 8'h00;   	// UDP Byte Index 6
+					data_bus_16[15] <= 8'h0A;   	// UDP Byte Index 7
+					data_bus_16[16] <= 8'h48;   	// DATA Byte Index 0  H
+					data_bus_16[17] <= 8'h45;   	// DATA Byte Index 1  E
+					data_bus_16[18] <= 8'h4C;   	// DATA Byte Index 2  L
+					data_bus_16[19] <= 8'h4C;   	// DATA Byte Index 3  L
+					data_bus_16[20] <= 8'h4F;   	// DATA Byte Index 4  O
+					data_bus_16[21] <= 8'h20;   	// DATA Byte Index 5
+					data_bus_16[22] <= 8'h57;   	// DATA Byte Index 6  W
+					data_bus_16[23] <= 8'h4F;   	// DATA Byte Index 7  O
+					data_bus_16[24] <= 8'h52;   	// DATA Byte Index 8  R
+					data_bus_16[25] <= 8'h4C;   	// DATA Byte Index 9  L
+					data_bus_16[26] <= 8'h44;   	// DATA Byte Index 10  D
+					data_bus_16[27] <= 8'h0D;   	// DATA Byte Index 11  CR
 					@(posedge clk);
 					int_n_tb <= 1'b0;
 					@(posedge clk);
