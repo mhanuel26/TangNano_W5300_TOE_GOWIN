@@ -29,6 +29,8 @@ module uart_top_tb ();
 	reg [7:0]		data_bus_idx;
 	reg [7:0]		data_bus_16 [DATA_BUS_WORD_LEN:0];
 	reg [2:0]		test_case;
+	reg [7:0]		s0_ir_tb;
+	wire [7:0]		address_bus_tb;
 
 	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
 	localparam		CASE02 = 1;		// this case exercise the send, it go streight to send a UDP packet and then handle the SENDOK interrupt.
@@ -72,15 +74,28 @@ module uart_top_tb ();
 	begin
 		if(enable_wr_decode_s0_ir == 1'b1) begin			// This task here is very specific for the UDP send case only, it help to clear the SENDOK interrupt when FPGA writes to SO_IR register
 			if(count == 2) begin 
-				enable_wr_decode_s0_ir <= 1'b0;
+				// enable_wr_decode_s0_ir <= 1'b0;
 				count <= 0;
 			end
 			else if(count == 1) begin 
 				count <= count + 1;	
-				if(data_bus_read_tb == 8'b00010000) begin	// check the value here
-					@(posedge clk);
-					@(posedge clk);
-					int_n_tb <= 1'b1;
+				if(address_bus_tb == 8'h207) begin
+					if(data_bus_read_tb == 8'b00010000) begin	// check the value here
+						s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
+						@(posedge clk);
+						@(posedge clk);
+						if(s0_ir_tb ==8'h00) begin
+							int_n_tb <= 1'b1;
+						end
+					end
+					else if(data_bus_read_tb == 8'b00000100) begin
+						s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
+						@(posedge clk);
+						@(posedge clk);
+						if(s0_ir_tb ==8'h00) begin
+							int_n_tb <= 1'b1;
+						end
+					end
 				end
 			end
 			else begin
@@ -89,6 +104,8 @@ module uart_top_tb ();
 		end
 	end
 
+
+	assign address_bus_tb = address_bus;
 	// assign data in data_bus of w5300 interface to a register in test bench for getting value been written
 	assign data_bus_read_tb = !wr ? data_bus : 'hz;
 	// assign data_bus of w5300 interface to athe value in data_bus_tb register in test bench for setting value been read.
@@ -181,7 +198,7 @@ module uart_top_tb ();
 
 					// set the w5300 register contents here for our test bench
 					@(posedge clk);
-					nibble <= 1'b0;
+					// nibble <= 1'b0;
 					data_bus_idx <= 8'd0;
 					// SET size of packet for UDP. UDP length <8> + DATA length
 					data_bus_16[0] <= 8'h00;   		// IR_REG0
@@ -212,19 +229,29 @@ module uart_top_tb ();
 					data_bus_16[25] <= 8'h4C;   	// DATA Byte Index 9  L
 					data_bus_16[26] <= 8'h44;   	// DATA Byte Index 10  D
 					data_bus_16[27] <= 8'h0D;   	// DATA Byte Index 11  CR
+					data_bus_16[28] <= 8'h00;   	// This is the Read to S0_TX_FSR
+					data_bus_16[29] <= 8'h00;   	// This is the Read to S0_TX_FSR1
+					data_bus_16[30] <= 8'h08;   	// This is the Read to S0_TX_FSR2, value for 2K free size available in TX FIFOR
+					data_bus_16[31] <= 8'h00;   	// This is the Read to S0_TX_FSR3
+
 					@(posedge clk);
+					enable_wr_decode_s0_ir <= 1'b1;
+					count <= 2'd0;
+					s0_ir_tb <= 8'b00000100;
 					int_n_tb <= 1'b0;
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					@(posedge clk);
-					int_n_tb <= 1'b1;
+					
+
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// @(posedge clk);
+					// int_n_tb <= 1'b1;
 				end
 				CASE02:
 				begin

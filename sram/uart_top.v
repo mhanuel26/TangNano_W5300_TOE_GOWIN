@@ -50,6 +50,7 @@ localparam						W5300_SEND_WRITE_FIFOR = 21;
 localparam						W5300_SEND_COMPLETED = 22;
 localparam						W5300_SET_SEND_CMD = 23;
 localparam						W5300_LOOPBACK_READ_COMPLETED = 24;
+localparam						W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO = 25;
 // These are states isused just for testing some stuff
 localparam						RECV_TEST_COMPLETED = 50;
 localparam						TEST_RESPONSE = 51;				
@@ -291,8 +292,8 @@ reg [16:0]						socket_tmit_send_size;
 reg [16:0]						socket_tmit_write_size;
 reg [16:0]						socket_tmit_free_size;
 reg [7:0]						wait_for_tx_free_space;
-reg [1:0]						comms_mode;		
-reg [3:0]						w5300_packet_info_idx;			
+reg [1:0]						comms_mode;
+reg [3:0]						w5300_packet_info_idx;
 
 // parameters for assigning the communication mode.
 localparam 						ETHERNET_SERIAL = 2'd0;		// Ethernet to Serial bridge
@@ -319,8 +320,10 @@ always@(posedge clk or negedge rst_n)
 begin
 	if(rst_n == 1'b0)
 	begin
+		wait_for_tx_free_space <= 8'd0;
+		socket_tmit_send_size <= 17'd0;
 		w5300_packet_info_idx <= 0;
-		comms_mode <= ETHERNET_SERIAL;			// hardwiring this here to test. TODO: There should a serial command to change mode on the flight.
+		comms_mode <= LOOPBACK; //ETHERNET_SERIAL;			// hardwiring this here to test. TODO: There should a serial command to change mode on the flight.
 		proc_ether_packet <= 1'b0;
 		get_size_nibble <= 1'b0;
 		rx_wr_index <= 8'd0;
@@ -921,6 +924,7 @@ begin
 				message_w5300_rx[w5300_rx_index] <= W5300_16REG_RD[15:8];
 				message_w5300_rx[w5300_rx_index+8'd1] <= W5300_16REG_RD[7:0];
 				w5300_rx_index <= w5300_rx_index + 8'd2;
+				proc_ether_packet <= 1'b0;				// time to process a new received ethernet packet
 				state <= W5300_RECV_PROCESS;
 				// rx_wr_index <= 8'd0;			// check if ok to remove
 			end
@@ -948,7 +952,6 @@ begin
 						message_w5300_rx[w5300_rx_index+8'd1] <= W5300_16REG_RD[7:0];			// LSB of RX FIFO is assigned to higher next index in our buffer
 						w5300_rx_index <= w5300_rx_index + 8'd2;
 						proc_ether_packet <= 1'b0;				// time to process a new received ethernet packet
-						// rx_wr_index <= 8'd0;					// make the index 0 for handling the data copying process
 						state <= W5300_RECV_PROCESS;
 					end
 				end
@@ -996,6 +999,7 @@ begin
 					proc_ether_packet <= 1'b1;						// disposition the next step in data processing of data
 					socket_tmit_write_size <= w5300_rx_index;		// here w5300_rx_index register should be always even as we are reading WORD from RX FIFO, so no need to adjust transmit size here
 					socket_tmit_send_size <= socket_tmit_send_size + w5300_rx_index;
+					tx_wr_index <= 8'd0;							// make the index 0 for handling the data copying process
 					state <= W5300_SEND_WRITE_FIFOR;
 					idle_to_next_state <= 1'b0;
 				end
@@ -1005,7 +1009,7 @@ begin
 						// here we have copied all data from RX FIFO into TX FIFO
 						// do the final steps for sending the packet , i.e. set size and set SEND command
 						address <= S0_CR;
-						data_16bits <= CR_RECV;			// set SEND command in S0_CR, will transmit data of size given by S0_TX_WRSR
+						data_16bits <= CR_RECV;			// set RECV command in S0_CR, will transmit data of size given by S0_TX_WRSR
 						reg_cnt <= 5'd0;						
 						idle_to_next_state <= 1'b1;
 						state <= W5300_WRITE_REG;
@@ -1013,20 +1017,30 @@ begin
 					end
 					else
 					begin
-						// there is still data in the RX FIFO of W5300 that we need to fetch
-						state <= W5300_RECV_STATE;
-						proc_ether_packet <= 1'b0;		// next time we return to this step after receivimg more RX FIFO data we need to send it back
-						w5300_rx_index <= 8'd0;			// our index register for the w5300 rx memory			
-						idle_to_next_state <= 1'b0;		// signal in this state that we need to first fetch before read
+						// we cannot inmediately access RX FIFOR here as we are coming from accessing TX FIFOR
+						// so we need to do a read on a register like S0_MR as per suggested in datasheet Sn_RX_FIFOR section page 89
+						// configure address and change to read register state
+						address <= S0_MR;  // read socket status register
+						state <= PROCESS_REG_READ;
+						idle_to_next_state <= 1'b1;  // next state after PROCESS_REG_READ is given by nextstate register
+						nextstate <= W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO;		// need to come back to init routine
 					end
 				end
 			end
 			default:
 			begin
-
+				// TODO
 
 			end
 			endcase
+		end
+		W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO:
+		begin
+			// there is still data in the RX FIFO of W5300 that we need to fetch
+			state <= W5300_RECV_STATE;
+			proc_ether_packet <= 1'b0;		// next time we return to this step after receivimg more RX FIFO data we need to send it back
+			w5300_rx_index <= 8'd0;			// our index register for the w5300 rx memory			
+			idle_to_next_state <= 1'b0;		// signal in this state that we need to first fetch before read
 		end
 		W5300_LOOPBACK_READ_COMPLETED:
 		begin
@@ -1159,7 +1173,7 @@ begin
 					data_16bits[7:0] <= message_w5300_tx[tx_wr_index + 8'd1];		// set lower nibble of 16 bit FIFO register to next byte in w5300 TX temp buffer
 					data_16bits[15:8] <= message_w5300_tx[tx_wr_index];			// set lower nibble of 16 bit FIFO register
 				end
-				socket_tmit_write_size <= socket_tmit_write_size - 17'd1;
+				socket_tmit_write_size <= socket_tmit_write_size - 17'd2;
 				tx_wr_index <= tx_wr_index + 8'd2;
 				idle_to_next_state <= 1'b1;
 				state <= W5300_WRITE_REG;
