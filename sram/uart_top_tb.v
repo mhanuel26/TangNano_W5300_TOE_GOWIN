@@ -10,7 +10,13 @@ module uart_top_tb ();
 	parameter		c_CLOCK_PERIOD_NS = 37;
 	parameter		c_CLKS_PER_BIT    = 234;    
 	parameter		c_BIT_PERIOD      = 8600;
-	localparam		DATA_BUS_WORD_LEN = 100;
+	// parameters used in the test bench
+	localparam 		PAYLOAD_SIZE = 200;
+	localparam 		UDP_PACKET_INFO_SIZE = 8;
+	localparam		DATA_BUS_WORD_LEN = 300;		// this has to be able to hold teh data we want to simulate a read
+	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
+	localparam		CASE02 = 1;		// this case exercise the send, it go streight to send a UDP packet and then handle the SENDOK interrupt.
+	localparam		CASE03 = 2;		// next case here
 
 	reg				clk;
 	reg				reset;
@@ -31,11 +37,8 @@ module uart_top_tb ();
 	reg [2:0]		test_case;
 	reg [7:0]		s0_ir_tb;
 	wire [7:0]		address_bus_tb;
-
-	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
-	localparam		CASE02 = 1;		// this case exercise the send, it go streight to send a UDP packet and then handle the SENDOK interrupt.
-	localparam		CASE03 = 2;		// next case here
-
+	integer			k;
+	integer 		sock_rcv_size_reg;
 	reg				enable_wr_decode_s0_ir;
 	reg [1:0]		count;
 
@@ -62,24 +65,28 @@ module uart_top_tb ();
 
 	always @(negedge rd)
 	begin
-		data_bus_tb <= data_bus_16[{data_bus_idx[7:1], nibble}];
-		if(nibble == 1'b1) begin
-			//last nibble here
-			data_bus_idx <= data_bus_idx + 8'd2;    // move to next word
+		if(address_bus_tb == 8'h200) begin				// case for read S0_MR0
+			data_bus_tb <= 8'h00;						// S0_MR is only written in our design to configure socket for UDP mode.
 		end
-		nibble <= ~nibble;
+		else if(address_bus_tb == 8'h201) begin			// case for read S0_MR1
+			data_bus_tb <= 8'h02;						// we are always in UDP mode for this test bench so far...
+		end
+		else begin
+			data_bus_tb <= data_bus_16[{data_bus_idx[7:1], nibble}];
+			if(nibble == 1'b1) begin
+				//last nibble here
+				data_bus_idx <= data_bus_idx + 8'd2;    // move to next word
+			end
+			nibble <= ~nibble;
+		end
 	end
 
 	always @(negedge wr)
 	begin
 		if(enable_wr_decode_s0_ir == 1'b1) begin			// This task here is very specific for the UDP send case only, it help to clear the SENDOK interrupt when FPGA writes to SO_IR register
-			if(count == 2) begin 
-				// enable_wr_decode_s0_ir <= 1'b0;
-				count <= 0;
-			end
-			else if(count == 1) begin 
-				count <= count + 1;	
-				if(address_bus_tb == 8'h207) begin
+			if(count == 1) begin 
+				count <= 0;	
+				if(address_bus_tb == 8'h207) begin				// case for the S0_IR1
 					if(data_bus_read_tb == 8'b00010000) begin	// check the value here
 						s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
 						@(posedge clk);
@@ -95,6 +102,13 @@ module uart_top_tb ();
 						if(s0_ir_tb ==8'h00) begin
 							int_n_tb <= 1'b1;
 						end
+					end
+				end
+				else if(address_bus_tb == 8'h203) begin			// case for the S0_CR
+					if(data_bus_read_tb == 8'h20) begin			// check the value here
+						#10000									// let's suppose it takes 10 us to send packet 
+						@(posedge clk);
+						int_n_tb <= 1'b0;
 					end
 				end
 			end
@@ -132,8 +146,7 @@ module uart_top_tb ();
 			reset <= 1'b1;
 			#10000
 
-			test_case = CASE01;					// change here the test case
-			@(posedge clk);
+			test_case = CASE03;					// change here the test case
 
 			case(test_case)
 				CASE01:
@@ -240,18 +253,6 @@ module uart_top_tb ();
 					s0_ir_tb <= 8'b00000100;
 					int_n_tb <= 1'b0;
 					
-
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// @(posedge clk);
-					// int_n_tb <= 1'b1;
 				end
 				CASE02:
 				begin
@@ -284,6 +285,66 @@ module uart_top_tb ();
 					enable_wr_decode_s0_ir <= 1'b1;
 					count <= 2'd0;
 					int_n_tb <= 1'b0;					 
+				end
+				CASE03:
+				begin
+					// set the w5300 register contents here for our test bench
+					sock_rcv_size_reg = PAYLOAD_SIZE + UDP_PACKET_INFO_SIZE;
+					@(posedge clk);
+					nibble <= 1'b0;
+					data_bus_idx <= 8'd0;
+					// SET size of packet for UDP. UDP length <8> + DATA length
+					data_bus_16[0] <= 8'h00;   		// IR_REG0
+					data_bus_16[1] <= 8'h01;   		// IR_REG1   Bit 0 is S0_INT
+					data_bus_16[2] <= 8'h00;   		// S0_IR_REG0
+					data_bus_16[3] <= 8'b00000100;	// S0_IR_REG1   Bit 0 is RECV interrupt					
+					data_bus_16[4] <= 8'h00;   		// S0_RX_RSR0
+					data_bus_16[5] <= (17'h010000 & sock_rcv_size_reg) >> 16;   // S0_RX_RSR1
+					data_bus_16[6] <= (17'hff00 & sock_rcv_size_reg) >> 8;   	// S0_RX_RSR2
+					data_bus_16[7] <= (17'h00ff & sock_rcv_size_reg);   		// S0_RX_RSR3   // SIZE = PAYLOAD + PACKET_INFO_SIZE
+					data_bus_16[8] <= 8'hC0;   							// UDP Byte Index 0  - UDP DESTINATION IP
+					data_bus_16[9] <= 8'hA8;   							// UDP Byte Index 1
+					data_bus_16[10] <= 8'h00;   						// UDP Byte Index 2
+					data_bus_16[11] <= 8'h01;   						// UDP Byte Index 3
+					data_bus_16[12] <= 8'h13;   						// UDP Byte Index 4   - UDP DESTINATION PORT  
+					data_bus_16[13] <= 8'h88;   						// UDP Byte Index 5
+					data_bus_16[14] <= (16'hff00 & PAYLOAD_SIZE) >> 8;  // UDP Byte Index 6	 - PACKET_LEN
+					data_bus_16[15] <= (16'h00ff & PAYLOAD_SIZE);    	// UDP Byte Index 7
+					for(k = 0; k < PAYLOAD_SIZE; k = k + 1) begin
+						data_bus_16[16+k] <= k;   	// DATA Byte Index 0  H
+					end
+					k = 16 + PAYLOAD_SIZE;
+					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR
+					k = k + 1;
+					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR1
+					k = k + 1;
+					data_bus_16[k] <= 8'h08;   	// This is the Read to S0_TX_FSR2, value for 2K free size available in TX FIFOR
+					k = k + 1;
+					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR3
+					k = k + 1;
+					@(posedge clk);
+					enable_wr_decode_s0_ir <= 1'b1;
+					count <= 2'd0;
+					s0_ir_tb <= 8'b00000100;
+					// prepare for SEND_OK interrupt handshake simulation
+					// FPGA read IR register
+					data_bus_16[k] <= 8'h00;   // IR_REG0
+					k = k + 1;
+					data_bus_16[k] <= 8'h01;   // IR_REG1 socket 0
+					k = k + 1;
+					data_bus_16[k] <= 8'h00;   // S0_IR0
+					k = k + 1;
+					data_bus_16[k] <= 8'b00010000;   // S0_IR1 with SENDOK flag ON
+					k = k + 1;
+					// set interrupt pin low for RECV interrupt
+					int_n_tb <= 1'b0;
+					@(posedge clk);
+					@(posedge int_n_tb);
+					@(posedge clk);
+					s0_ir_tb <= 8'b00010000;
+
+
+
 				end
 			endcase
 		end

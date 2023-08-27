@@ -839,8 +839,8 @@ begin
 			end
 			else if(get_interrupt_socket == ISR_JUMP_INTO_SEND) begin
 				// the transmit interrupt need to jump to return state configured when jumping to SEND state
-				state <= ret2state;
-				nextstate <= ret2nextstate;
+				state <= IDLE;  		//ret2state;
+				nextstate <= PROCESS_RX; //ret2nextstate;
 			end
 		end
 		W5300_SOCK_RECV_ISR:
@@ -934,9 +934,10 @@ begin
 					state <= PROCESS_REG_READ;			// PROCESS_REG_READ is the state to read a register
 					nextstate <= W5300_RECV_STATE;		// get rx packet into local memory
 					idle_to_next_state <= 1'b1;  		// return to this state after fetching register
+					socket_recv_value <= socket_recv_value - 17'd2;		// need to decrement the total count of bytes received 
 				end 
 				else begin
-					if(w5300_rx_index < MSG_BUF - 1) begin
+					if(w5300_rx_index < MSG_BUF - 2) begin			// we are extracting here two bytes with every access to RX FIFO
 						// every time FPGA fetch a WORD from FIFOR
 						message_w5300_rx[w5300_rx_index] <= W5300_16REG_RD[15:8];				// MSB of RX FIFO is assigned to lower current index in our buffer
 						message_w5300_rx[w5300_rx_index+8'd1] <= W5300_16REG_RD[7:0];			// LSB of RX FIFO is assigned to higher next index in our buffer
