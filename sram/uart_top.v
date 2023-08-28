@@ -905,7 +905,7 @@ begin
 					// every time here FPGA fetch a WORD from FIFOR and save previous register read
 					message_w5300_rx[w5300_packet_info_idx] <= W5300_16REG_RD[15:8];				// MSB of RX FIFO is assigned to lower current index in our buffer
 					message_w5300_rx[w5300_packet_info_idx+8'd1] <= W5300_16REG_RD[7:0];			// LSB of RX FIFO is assigned to higher next index in our buffer
-					w5300_packet_info_idx <= w5300_packet_info_idx + 8'd2;
+					w5300_packet_info_idx <= w5300_packet_info_idx + 4'd2;
 					socket_recv_value <= socket_recv_value - 17'd2;									// Packet info length is also included in the total length of received bytes
 					if(w5300_packet_info_idx < UDP_PACKET_INFO_LEN - 8'd2) begin				// otherwise remain  in state to save values and move to next state
 						// we need to keep extracting data from RX FIFO to read completely the PACKET-INFO header
