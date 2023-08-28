@@ -6,6 +6,7 @@ module uart(
 	output						uart_tx,
 	output reg [5:0]			led,
 	input						int_n,
+    output                      w5300_rst,
 	output wire [9:0]			addr,			//  10-bit Address bus
 	output wire					wr,				//  write enable
 	output wire					rd,				//  read enable
@@ -294,6 +295,7 @@ reg [16:0]						socket_tmit_free_size;
 reg [7:0]						wait_for_tx_free_space;
 reg [1:0]						comms_mode;
 reg [3:0]						w5300_packet_info_idx;
+reg                             w5300_n_rst;
 
 // parameters for assigning the communication mode.
 localparam 						ETHERNET_SERIAL = 2'd0;		// Ethernet to Serial bridge
@@ -302,7 +304,7 @@ localparam						COMMAND_MODE = 2'd2;   		// TODO: This will call a state to proc
 
 assign rx_data_ready = 1'b1;
 assign W5300_16REG_WR = data_16bits;
-
+assign w5300_rst = w5300_n_rst;
 
 // parameter N = 26;
 
@@ -320,6 +322,7 @@ always@(posedge clk or negedge rst_n)
 begin
 	if(rst_n == 1'b0)
 	begin
+        w5300_n_rst <= 1'b1;
 		wait_for_tx_free_space <= 8'd0;
 		socket_tmit_send_size <= 17'd0;
 		w5300_packet_info_idx <= 0;

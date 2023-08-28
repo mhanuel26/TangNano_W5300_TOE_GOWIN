@@ -4,12 +4,19 @@
     <Version>1.0</Version>
     <FlowState>
         <Process ID="Synthesis" State="2"/>
-        <Process ID="Pnr" State="3"/>
+        <Process ID="Pnr" State="2"/>
         <Process ID="Gao" State="2"/>
         <Process ID="Rtl_Gao" State="2"/>
     </FlowState>
     <ResultFileList>
         <ResultFile ResultFileType="RES.netlist" ResultFilePath="impl/gwsynthesis/tangnano_toe.vg"/>
+        <ResultFile ResultFileType="RES.pnr.bitstream" ResultFilePath="impl/pnr/tangnano_toe.fs"/>
+        <ResultFile ResultFileType="RES.pnr.pin.rpt" ResultFilePath="impl/pnr/tangnano_toe.pin.html"/>
+        <ResultFile ResultFileType="RES.pnr.posp.bin" ResultFilePath="impl/pnr/tangnano_toe.db"/>
+        <ResultFile ResultFileType="RES.pnr.pwr.rpt" ResultFilePath="impl/pnr/tangnano_toe.power.html"/>
+        <ResultFile ResultFileType="RES.pnr.report" ResultFilePath="impl/pnr/tangnano_toe.rpt.html"/>
+        <ResultFile ResultFileType="RES.pnr.timing.paths" ResultFilePath="impl/pnr/tangnano_toe.timing_paths"/>
+        <ResultFile ResultFileType="RES.pnr.timing.rpt" ResultFilePath="impl/pnr/tangnano_toe.tr.html"/>
         <ResultFile ResultFileType="RES.syn.report" ResultFilePath="impl/gwsynthesis/tangnano_toe_syn.rpt.html"/>
         <ResultFile ResultFileType="RES.syn.resource" ResultFilePath="impl/gwsynthesis/tangnano_toe_syn_rsc.xml"/>
     </ResultFileList>
