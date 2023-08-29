@@ -1,16 +1,18 @@
 module uart(
 	input						clk,
-	input						rst_n,
+	input						rst_n,          // reset pin of tang nano 9k board
 	input						user_btn,
 	input						uart_rx,
 	output						uart_tx,
 	output reg [5:0]			led,
-	input						int_n,
-    output                      w5300_rst,
-	output wire [9:0]			addr,			//  10-bit Address bus
-	output wire					wr,				//  write enable
-	output wire					rd,				//  read enable
-	output wire					cs,				//  chip enable
+	input						int_n,          // /INT pin of w5300
+    input                       toe_mcu_nrst,   // MCU reset line of w5300 TOE shield
+    input                       w5300_nrst, 	// W5300 /RST line in W5300 shield, this is controlled by MIC811
+    output                      n_mr_mic811,    // output to control /MR pin of MIC811 in TOE board
+	output wire [9:0]			addr,			// 10-bit Address bus
+	output wire					wr,				// write enable
+	output wire					rd,				// read enable
+	output wire					cs,				// chip enable
 	inout wire [7:0]			data_bus		// 8 bit data bus
 );
 
@@ -52,6 +54,8 @@ localparam						W5300_SEND_COMPLETED = 22;
 localparam						W5300_SET_SEND_CMD = 23;
 localparam						W5300_LOOPBACK_READ_COMPLETED = 24;
 localparam						W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO = 25;
+localparam						WAIT_W5300_RST = 26;
+
 // These are states isused just for testing some stuff
 localparam						RECV_TEST_COMPLETED = 50;
 localparam						TEST_RESPONSE = 51;				
@@ -295,16 +299,18 @@ reg [16:0]						socket_tmit_free_size;
 reg [7:0]						wait_for_tx_free_space;
 reg [1:0]						comms_mode;
 reg [3:0]						w5300_packet_info_idx;
-reg                             w5300_n_rst;
+reg                             w5300_nrst_ctrl;
 
 // parameters for assigning the communication mode.
 localparam 						ETHERNET_SERIAL = 2'd0;		// Ethernet to Serial bridge
 localparam						LOOPBACK = 2'd1;			// Loopback mode, received data will be send back to peer. 
 localparam						COMMAND_MODE = 2'd2;   		// TODO: This will call a state to process the message according to a protocol.
+parameter						COMMS_MODE = LOOPBACK;		// hardwiring this here to test. TODO: There should a serial command to change mode on the flight.
+
 
 assign rx_data_ready = 1'b1;
 assign W5300_16REG_WR = data_16bits;
-assign w5300_rst = w5300_n_rst;
+assign n_mr_mic811 = w5300_nrst_ctrl & toe_mcu_nrst;
 
 // parameter N = 26;
 
@@ -322,11 +328,11 @@ always@(posedge clk or negedge rst_n)
 begin
 	if(rst_n == 1'b0)
 	begin
-        w5300_n_rst <= 1'b1;
+        w5300_nrst_ctrl <= 1'b1;
 		wait_for_tx_free_space <= 8'd0;
 		socket_tmit_send_size <= 17'd0;
 		w5300_packet_info_idx <= 0;
-		comms_mode <= LOOPBACK; //ETHERNET_SERIAL;			// hardwiring this here to test. TODO: There should a serial command to change mode on the flight.
+		comms_mode <= COMMS_MODE; 			
 		proc_ether_packet <= 1'b0;
 		get_size_nibble <= 1'b0;
 		rx_wr_index <= 8'd0;
@@ -369,6 +375,9 @@ begin
 			begin
 				state <= W5300_ISR_STATE;				// service the interrupt
 				get_interrupt_socket <= ISR_GET_IR;		// Init sub-state is to get IR reg
+			end
+			else if(w5300_nrst == 1'b0) begin
+				state <= WAIT_W5300_RST;
 			end
 		end
 		SEND:
@@ -506,6 +515,13 @@ begin
 				state <= PROCESS_RX;
 			end
 			endcase
+		end
+		WAIT_W5300_RST:
+		begin
+			if(w5300_nrst == 1'b1) begin
+				state <= IDLE;
+				nextstate <= PROCESS_RX;
+			end
 		end
 		RECV_TEST_COMPLETED:
 		begin

@@ -16,15 +16,21 @@ module uart_top_tb ();
 	localparam		DATA_BUS_WORD_LEN = 300;		// this has to be able to hold teh data we want to simulate a read
 	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
 	localparam		CASE02 = 1;		// this case exercise the send, it go streight to send a UDP packet and then handle the SENDOK interrupt.
-	localparam		CASE03 = 2;		// next case here
+	localparam		CASE03 = 2;		// this test will exercise the loopback mode
+	localparam		CASE04 = 3;		// Test the reset here
 
 	reg				clk;
 	reg				reset;
 	wire [5:0]		leds;
 	wire [9:0]		address_bus;
+	wire 			toe_mcu_nrst; 
+	reg				toe_mcu_nrst_tb;
+	wire 			n_mr_mic811_tb;
+	wire			w5300_nrst;
+	reg				w5300_nrst_tb;
 	wire [7:0]		data_bus;
 	reg [7:0]		data_bus_tb;
-	reg [7:0]		data_bus_read_tb;
+	wire [7:0]		data_bus_read_tb;
 	wire			wr;
 	wire			rd;
 	wire			cs;
@@ -39,8 +45,6 @@ module uart_top_tb ();
 	wire [7:0]		address_bus_tb;
 	integer			k;
 	integer 		sock_rcv_size_reg;
-	reg				enable_wr_decode_s0_ir;
-	reg [1:0]		count;
 
 	// Takes in input byte and serializes it 
 	task UART_WRITE_BYTE;
@@ -63,6 +67,13 @@ module uart_top_tb ();
 		 end
 	endtask // UART_WRITE_BYTE
 
+	always @(negedge n_mr_mic811_tb)
+	begin
+		w5300_nrst_tb <= 1'b0;
+		#400000
+		w5300_nrst_tb <= 1'b1;
+	end
+
 	always @(negedge rd)
 	begin
 		if(address_bus_tb == 8'h200) begin				// case for read S0_MR0
@@ -83,41 +94,42 @@ module uart_top_tb ();
 
 	always @(negedge wr)
 	begin
-		if(enable_wr_decode_s0_ir == 1'b1) begin			// This task here is very specific for the UDP send case only, it help to clear the SENDOK interrupt when FPGA writes to SO_IR register
-			if(count == 1) begin 
-				count <= 0;	
-				if(address_bus_tb == 8'h207) begin				// case for the S0_IR1
-					if(data_bus_read_tb == 8'b00010000) begin	// check the value here
-						s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
-						@(posedge clk);
-						@(posedge clk);
-						if(s0_ir_tb ==8'h00) begin
-							int_n_tb <= 1'b1;
-						end
-					end
-					else if(data_bus_read_tb == 8'b00000100) begin
-						s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
-						@(posedge clk);
-						@(posedge clk);
-						if(s0_ir_tb ==8'h00) begin
-							int_n_tb <= 1'b1;
-						end
-					end
-				end
-				else if(address_bus_tb == 8'h203) begin			// case for the S0_CR
-					if(data_bus_read_tb == 8'h20) begin			// check the value here
-						#10000									// let's suppose it takes 10 us to send packet 
-						@(posedge clk);
-						int_n_tb <= 1'b0;
-					end
+		if(address_bus_tb == 8'h207) begin				// case for the S0_IR1
+			if(data_bus_read_tb == 8'b00010000) begin	// check the value here
+				$monitor("Test Bench detect FPGA clear SEND_OK flag in S0_IR t=%3d\n",$time);
+				s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
+				@(posedge clk);
+				@(posedge clk);
+				if(s0_ir_tb ==8'h00) begin
+					int_n_tb <= 1'b1;
+					$monitor("Test Bench set /INT HIGH at time t=%3d\n",$time);
 				end
 			end
-			else begin
-				count <= count + 1;	
+			else if(data_bus_read_tb == 8'b00000100) begin
+				$monitor("Test Bench detect FPGA clear RECV flag in S0_IR t=%3d\n",$time);
+				s0_ir_tb <= s0_ir_tb ^ data_bus_read_tb;
+				@(posedge clk);
+				@(posedge clk);
+				if(s0_ir_tb ==8'h00) begin
+					int_n_tb <= 1'b1;
+					$monitor("Test Bench set /INT HIGH at time t=%3d\n",$time);
+				end
+			end
+		end
+		else if(address_bus_tb == 8'h203) begin			// case for the S0_CR
+			if(data_bus_read_tb == 8'h20) begin			// check the value here
+				$monitor("FPGA issue SEND command at time t=%3d\n",$time);
+				#10000									// let's suppose it takes 10 us to send packet 
+				@(posedge clk);
+				$monitor("Test Bench set /INT LOW at time t=%3d\n",$time);
+				int_n_tb <= 1'b0;
 			end
 		end
 	end
 
+	assign toe_mcu_nrst = toe_mcu_nrst_tb;
+
+	assign w5300_nrst = w5300_nrst_tb;
 
 	assign address_bus_tb = address_bus;
 	// assign data in data_bus of w5300 interface to a register in test bench for getting value been written
@@ -127,8 +139,8 @@ module uart_top_tb ();
 
 	// generate the clock
 	initial begin
-			enable_wr_decode_s0_ir <= 0;
-			count <= 0;
+			$display("Init Test Bench\n");
+			toe_mcu_nrst_tb <= 1'b1;
 			data_bus_idx <= 8'd0;
 			clk <= 1'b0;
 			int_n_tb <= 1'b1;
@@ -146,7 +158,7 @@ module uart_top_tb ();
 			reset <= 1'b1;
 			#10000
 
-			test_case = CASE03;					// change here the test case
+			test_case = CASE04;					// change here the test case
 
 			case(test_case)
 				CASE01:
@@ -208,7 +220,6 @@ module uart_top_tb ();
 					// send a command
 					// @(posedge clk);
 					// UART_WRITE_BYTE(8'h0D);    // ENTER KEY
-
 					// set the w5300 register contents here for our test bench
 					@(posedge clk);
 					// nibble <= 1'b0;
@@ -246,13 +257,9 @@ module uart_top_tb ();
 					data_bus_16[29] <= 8'h00;   	// This is the Read to S0_TX_FSR1
 					data_bus_16[30] <= 8'h08;   	// This is the Read to S0_TX_FSR2, value for 2K free size available in TX FIFOR
 					data_bus_16[31] <= 8'h00;   	// This is the Read to S0_TX_FSR3
-
 					@(posedge clk);
-					enable_wr_decode_s0_ir <= 1'b1;
-					count <= 2'd0;
 					s0_ir_tb <= 8'b00000100;
 					int_n_tb <= 1'b0;
-					
 				end
 				CASE02:
 				begin
@@ -282,8 +289,6 @@ module uart_top_tb ();
 					data_bus_16[2] <= 8'h00;   // S0_IR0
 					data_bus_16[3] <= 8'b00010000;   // S0_IR1 with SENDOK flag ON
 					@(posedge clk);
-					enable_wr_decode_s0_ir <= 1'b1;
-					count <= 2'd0;
 					int_n_tb <= 1'b0;					 
 				end
 				CASE03:
@@ -323,8 +328,6 @@ module uart_top_tb ();
 					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR3
 					k = k + 1;
 					@(posedge clk);
-					enable_wr_decode_s0_ir <= 1'b1;
-					count <= 2'd0;
 					s0_ir_tb <= 8'b00000100;
 					// prepare for SEND_OK interrupt handshake simulation
 					// FPGA read IR register
@@ -338,12 +341,21 @@ module uart_top_tb ();
 					k = k + 1;
 					// set interrupt pin low for RECV interrupt
 					int_n_tb <= 1'b0;
+					$monitor("Test Bench set /INT LOW to simulate reception t=%3d\n",$time);
 					@(posedge clk);
 					@(posedge int_n_tb);
 					@(posedge clk);
 					s0_ir_tb <= 8'b00010000;
-
-
+				end
+				CASE04:		// test the reset
+				begin
+					#10000
+					@(posedge clk);
+					toe_mcu_nrst_tb <= 1'b0;
+					#1000
+					toe_mcu_nrst_tb <= 1'b1;
+					@(posedge clk);
+					@(posedge w5300_nrst_tb);
 
 				end
 			endcase
@@ -354,9 +366,12 @@ module uart_top_tb ();
 				.clk (clk),
 				.rst_n (reset),
 				.uart_rx (data_in),
-				.uart_tx (data_out), 
+				.uart_tx (data_out),
+				.led (leds), 
 				.int_n(int_n_tb),
-				.led (leds),
+				.toe_mcu_nrst(toe_mcu_nrst),
+				.w5300_nrst(w5300_nrst),
+				.n_mr_mic811(n_mr_mic811_tb),
 				.addr(address_bus),
 				.wr(wr),
 				.cs(cs),
