@@ -13,11 +13,14 @@ module uart_top_tb ();
 	// parameters used in the test bench
 	localparam 		PAYLOAD_SIZE = 200;
 	localparam 		UDP_PACKET_INFO_SIZE = 8;
-	localparam		DATA_BUS_WORD_LEN = 300;		// this has to be able to hold teh data we want to simulate a read
+	localparam		DATA_BUS_WORD_LEN = 300;		// this has to be able to hold the data we want to simulate a read
 	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
 	localparam		CASE02 = 1;		// this case exercise the send, it go streight to send a UDP packet and then handle the SENDOK interrupt.
 	localparam		CASE03 = 2;		// this test will exercise the loopback mode
-	localparam		CASE04 = 3;		// Test the reset here
+	localparam		CASE04 = 3;		// Test the reset here using the W5300 TOE MCU RESET button 
+	localparam		CASE05 = 4;		// Test power up sequence. The FPGA will reset W5300 and do INIT routine at power up.
+
+	localparam 		TEST_CASE = CASE03;
 
 	reg				clk;
 	reg				reset;
@@ -70,7 +73,7 @@ module uart_top_tb ();
 	always @(negedge n_mr_mic811_tb)
 	begin
 		w5300_nrst_tb <= 1'b0;
-		#400000
+		#4000000
 		w5300_nrst_tb <= 1'b1;
 	end
 
@@ -158,7 +161,7 @@ module uart_top_tb ();
 			reset <= 1'b1;
 			#10000
 
-			test_case = CASE04;					// change here the test case
+			test_case = TEST_CASE;		// selected test case to run
 
 			case(test_case)
 				CASE01:
@@ -292,33 +295,35 @@ module uart_top_tb ();
 					int_n_tb <= 1'b0;					 
 				end
 				CASE03:
-				begin
+				begin					
 					// set the w5300 register contents here for our test bench
 					sock_rcv_size_reg = PAYLOAD_SIZE + UDP_PACKET_INFO_SIZE;
 					@(posedge clk);
 					nibble <= 1'b0;
-					data_bus_idx <= 8'd0;
+					data_bus_idx <= 8'd0;			// An index used to select the 8-bit data from the memory 8-bit memory data_bus_16
+					data_bus_16[0] <= 8'h00;
+					data_bus_16[1] <= 8'h22;
 					// SET size of packet for UDP. UDP length <8> + DATA length
-					data_bus_16[0] <= 8'h00;   		// IR_REG0
-					data_bus_16[1] <= 8'h01;   		// IR_REG1   Bit 0 is S0_INT
-					data_bus_16[2] <= 8'h00;   		// S0_IR_REG0
-					data_bus_16[3] <= 8'b00000100;	// S0_IR_REG1   Bit 0 is RECV interrupt					
-					data_bus_16[4] <= 8'h00;   		// S0_RX_RSR0
-					data_bus_16[5] <= (17'h010000 & sock_rcv_size_reg) >> 16;   // S0_RX_RSR1
-					data_bus_16[6] <= (17'hff00 & sock_rcv_size_reg) >> 8;   	// S0_RX_RSR2
-					data_bus_16[7] <= (17'h00ff & sock_rcv_size_reg);   		// S0_RX_RSR3   // SIZE = PAYLOAD + PACKET_INFO_SIZE
-					data_bus_16[8] <= 8'hC0;   							// UDP Byte Index 0  - UDP DESTINATION IP
-					data_bus_16[9] <= 8'hA8;   							// UDP Byte Index 1
-					data_bus_16[10] <= 8'h00;   						// UDP Byte Index 2
-					data_bus_16[11] <= 8'h01;   						// UDP Byte Index 3
-					data_bus_16[12] <= 8'h13;   						// UDP Byte Index 4   - UDP DESTINATION PORT  
-					data_bus_16[13] <= 8'h88;   						// UDP Byte Index 5
-					data_bus_16[14] <= (16'hff00 & PAYLOAD_SIZE) >> 8;  // UDP Byte Index 6	 - PACKET_LEN
-					data_bus_16[15] <= (16'h00ff & PAYLOAD_SIZE);    	// UDP Byte Index 7
+					data_bus_16[2] <= 8'h00;   		// IR_REG0
+					data_bus_16[3] <= 8'h01;   		// IR_REG1   Bit 0 is S0_INT
+					data_bus_16[4] <= 8'h00;   		// S0_IR_REG0
+					data_bus_16[5] <= 8'b00000100;	// S0_IR_REG1   Bit 0 is RECV interrupt					
+					data_bus_16[6] <= 8'h00;   		// S0_RX_RSR0
+					data_bus_16[7] <= (17'h010000 & sock_rcv_size_reg) >> 16;   // S0_RX_RSR1
+					data_bus_16[8] <= (17'hff00 & sock_rcv_size_reg) >> 8;   	// S0_RX_RSR2
+					data_bus_16[9] <= (17'h00ff & sock_rcv_size_reg);   		// S0_RX_RSR3   // SIZE = PAYLOAD + PACKET_INFO_SIZE
+					data_bus_16[10] <= 8'hC0;   							// UDP Byte Index 0  - UDP DESTINATION IP
+					data_bus_16[11] <= 8'hA8;   							// UDP Byte Index 1
+					data_bus_16[12] <= 8'h00;   						// UDP Byte Index 2
+					data_bus_16[13] <= 8'h01;   						// UDP Byte Index 3
+					data_bus_16[14] <= 8'h13;   						// UDP Byte Index 4   - UDP DESTINATION PORT  
+					data_bus_16[15] <= 8'h88;   						// UDP Byte Index 5
+					data_bus_16[16] <= (16'hff00 & PAYLOAD_SIZE) >> 8;  // UDP Byte Index 6	 - PACKET_LEN
+					data_bus_16[17] <= (16'h00ff & PAYLOAD_SIZE);    	// UDP Byte Index 7
 					for(k = 0; k < PAYLOAD_SIZE; k = k + 1) begin
-						data_bus_16[16+k] <= k;   	// DATA Byte Index 0  H
+						data_bus_16[18+k] <= k;   	// DATA Byte Index 0  H
 					end
-					k = 16 + PAYLOAD_SIZE;
+					k = 18 + PAYLOAD_SIZE;
 					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR
 					k = k + 1;
 					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR1
@@ -339,6 +344,7 @@ module uart_top_tb ();
 					k = k + 1;
 					data_bus_16[k] <= 8'b00010000;   // S0_IR1 with SENDOK flag ON
 					k = k + 1;
+					#10000000
 					// set interrupt pin low for RECV interrupt
 					int_n_tb <= 1'b0;
 					$monitor("Test Bench set /INT LOW to simulate reception t=%3d\n",$time);
@@ -356,7 +362,14 @@ module uart_top_tb ();
 					toe_mcu_nrst_tb <= 1'b1;
 					@(posedge clk);
 					@(posedge w5300_nrst_tb);
-
+				end
+				CASE05:
+				begin
+					@(posedge clk);
+					data_bus_idx <= 8'd0;
+					nibble <= 1'b0;
+					data_bus_16[0] <= 8'h00;
+					data_bus_16[1] <= 8'h22;
 				end
 			endcase
 		end

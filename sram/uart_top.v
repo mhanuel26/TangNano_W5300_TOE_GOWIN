@@ -55,6 +55,7 @@ localparam						W5300_SET_SEND_CMD = 23;
 localparam						W5300_LOOPBACK_READ_COMPLETED = 24;
 localparam						W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO = 25;
 localparam						WAIT_W5300_RST = 26;
+localparam						RESET_W5300 = 27;
 
 // These are states isused just for testing some stuff
 localparam						RECV_TEST_COMPLETED = 50;
@@ -301,6 +302,7 @@ reg [1:0]						comms_mode;
 reg [3:0]						w5300_packet_info_idx;
 reg                             w5300_nrst_ctrl;
 
+
 // parameters for assigning the communication mode.
 localparam 						ETHERNET_SERIAL = 2'd0;		// Ethernet to Serial bridge
 localparam						LOOPBACK = 2'd1;			// Loopback mode, received data will be send back to peer. 
@@ -329,6 +331,7 @@ begin
 	if(rst_n == 1'b0)
 	begin
         w5300_nrst_ctrl <= 1'b1;
+		wait_cnt <= 32'd10000;
 		wait_for_tx_free_space <= 8'd0;
 		socket_tmit_send_size <= 17'd0;
 		w5300_packet_info_idx <= 0;
@@ -343,8 +346,7 @@ begin
 		start_in <= 1'b0;
 		idle_to_next_state <= 1'b0;
 		led <= ~6'b100000;
-		wait_cnt <= 32'd0;
-		state <= IDLE;
+		state <= RESET_W5300;
         nextstate <= PROCESS_RX;
 		address <= 10'd0;
 		tx_cnt <= 8'd0;
@@ -355,6 +357,22 @@ begin
 	end
 	else
 	case(state)
+		RESET_W5300:
+		begin
+			if(wait_cnt == 32'd0) begin
+				if(w5300_nrst_ctrl == 1'b1) begin
+					w5300_nrst_ctrl <= 1'b0;
+					wait_cnt <= 32'd100;
+				end
+				else begin
+					w5300_nrst_ctrl <= 1'b1;
+					state <= IDLE;
+				end
+			end
+			else begin
+				wait_cnt <= wait_cnt - 32'd1;
+			end
+		end
 		IDLE:
 		begin
 			if(rx_data_valid == 1'b1)
@@ -519,8 +537,10 @@ begin
 		WAIT_W5300_RST:
 		begin
 			if(w5300_nrst == 1'b1) begin
-				state <= IDLE;
-				nextstate <= PROCESS_RX;
+				// state <= IDLE;
+				// nextstate <= PROCESS_RX;
+				state <= INIT_ROUTINE;
+				init_w5300_state <= INIT_W5300_1;
 			end
 		end
 		RECV_TEST_COMPLETED:
