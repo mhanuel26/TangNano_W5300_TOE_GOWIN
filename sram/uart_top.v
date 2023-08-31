@@ -255,8 +255,8 @@ wire							rx_data_ready;
 reg [31:0]						wait_cnt;
 reg [7:0]						state;
 reg [7:0]						nextstate;
-reg [7:0]						ret2state;
-reg [7:0]						ret2nextstate;
+// reg [7:0]						ret2state;
+// reg [7:0]						ret2nextstate;
 
 reg [ADDRESS_SIZE-1:0]			address;
 wire [ADDRESS_SIZE-1:0]			address2;
@@ -435,6 +435,7 @@ begin
                     message_tx[DATA_NUM_HELP - 1 - i] = help_data[i * 8 +: 8];
 				end
                 msg_size = DATA_NUM_HELP;
+				idle_to_next_state <= 1'b0;
 				state <= SEND;
                 nextstate <= PROCESS_RX;
 			end
@@ -452,6 +453,7 @@ begin
 				end 
                 msg_size <= DATA_NUM_READ+ADDRESS_SIZE+1;
                 state <= SEND;
+				idle_to_next_state <= 1'b1;
                 nextstate <= PROCESS_ADDR_READ;
             end
 			WRITE:
@@ -460,6 +462,7 @@ begin
 					message_tx[i] <= { 7'h18, address[ADDRESS_SIZE - 1 - i]};
 				end
 				msg_size <= ADDRESS_SIZE;	// ADDRESS_SIZE;
+				idle_to_next_state <= 1'b0;
 				state <= SEND;
 				nextstate <= PROCESS_RX;
 			end
@@ -487,7 +490,7 @@ begin
 				message_w5300_tx[11] <= 8'h0D;   // DATA Byte Index 11  CR
 				socket_tmit_send_size <= 17'd12;
 				state <= W5300_SEND_START;
-				ret2state <= TEST_RESPONSE;
+				// ret2state <= TEST_RESPONSE;
 				// ret2nextstate <= PROCESS_RX;	// this is not used in this context
 				idle_to_next_state <= 1'b0;
 			end
@@ -552,7 +555,8 @@ begin
 			end
 			msg_size <= DATA_NUM_RECV_DONE;
 			state <= SEND;
-			nextstate <= IDLE;
+			idle_to_next_state <= 1'b0;
+			nextstate <= PROCESS_RX;
 		end
 		TEST_RESPONSE:
 		begin
@@ -561,7 +565,7 @@ begin
 			end		
 			msg_size <= DATA_NUM_TEST;
 			state <= SEND; 
-			idle_to_next_state = 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
+			idle_to_next_state <= 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
 			nextstate <= PROCESS_RX;
 		end
 		PROCESS_REG_READ:
@@ -620,7 +624,8 @@ begin
 			end
 			msg_size <= ADDRESS_SIZE + 22 + DATA_SIZE_WORD;
 			state <= SEND;
-			nextstate <= IDLE;
+			idle_to_next_state <= 1'b0;
+			nextstate <= PROCESS_RX;
 		end
 		PROCESS_ADDR_READ:
         begin
@@ -652,7 +657,7 @@ begin
 			end		
 			msg_size <= DATA_NUM_READ_ADDR + ADDRESS_SIZE;
 			state <= SEND; 
-			// idle_to_next_state <= 1'b1;	// this only sets the value and wait for read or write command to follow
+			idle_to_next_state <= 1'b0;	// this only sets the value and wait for read or write command to follow
 			nextstate <= PROCESS_RX;
 		end
 		INIT_ROUTINE:
@@ -783,7 +788,7 @@ begin
                     message_tx[DATA_NUM_INIT_DONE - 1 - i] = init_done[i * 8 +: 8];
                 end
 				msg_size <= DATA_NUM_INIT_DONE;
-                idle_to_next_state = 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
+                idle_to_next_state <= 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
 				state <= SEND;
 				nextstate <= PROCESS_RX;
 			end
@@ -794,7 +799,7 @@ begin
                     message_tx[DATA_NUM_INIT_FAILURE - 1 - i] = init_fail[i * 8 +: 8];
                 end
 				msg_size <= DATA_NUM_INIT_FAILURE;  
-                idle_to_next_state = 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
+                idle_to_next_state <= 1'b0;			// make sure this flag is clear if you want to get ito IDLE state and be able to process serial commands.
 				state <= SEND;
 				nextstate <= PROCESS_RX;
 			end
@@ -1046,9 +1051,9 @@ begin
 			begin
 				if(proc_ether_packet == 1'b0)
 				begin
-					proc_ether_packet <= 1'b1;						// disposition the next step in data processing of data
-					socket_tmit_write_size <= w5300_rx_index;		// here w5300_rx_index register should be always even as we are reading WORD from RX FIFO, so no need to adjust transmit size here
-					tx_wr_index <= 8'd0;							// make the index 0 for handling the data copying process
+					proc_ether_packet <= 1'b1;							// disposition the next step in data processing of data
+					socket_tmit_write_size <= {9'd0, w5300_rx_index};   // here w5300_rx_index register should be always even as we are reading WORD from RX FIFO, so no need to adjust transmit size here
+					tx_wr_index <= 8'd0;								// make the index 0 for handling the data copying process
 					state <= W5300_SEND_WRITE_FIFOR;
 					idle_to_next_state <= 1'b0;
 				end
@@ -1087,7 +1092,7 @@ begin
 		begin
 			// there is still data in the RX FIFO of W5300 that we need to fetch
 			state <= W5300_RECV_STATE;
-			proc_ether_packet <= 1'b0;		// next time we return to this step after receivimg more RX FIFO data we need to send it back
+			proc_ether_packet <= 1'b0;		// next time we return to this step after receiving more RX FIFO data we need to send it back
 			w5300_rx_index <= 8'd0;			// our index register for the w5300 rx memory			
 			idle_to_next_state <= 1'b0;		// signal in this state that we need to first fetch before read
 		end
@@ -1095,7 +1100,7 @@ begin
 		begin
 			// socket_tmit_send_size already should have the data length to send
 			state <= W5300_SEND_START;
-			ret2state <= IDLE;
+			// ret2state <= IDLE;
 			// ret2nextstate <= PROCESS_RX;	// ?????
 			idle_to_next_state <= 1'b0;
 		end
@@ -1200,7 +1205,7 @@ begin
 		end
 		W5300_SET_WRITE_SIZE:
 		begin
-		//set the transmit size in S0_TX_WRSR
+			//set the transmit size in S0_TX_WRSR
 			address <= S0_TX_WRSR;
 			data_16bits <= {15'd0, socket_tmit_send_size[16]};
 			w5300_regs[0] <= socket_tmit_send_size[15:0];
@@ -1214,6 +1219,7 @@ begin
 		begin
 			if(socket_tmit_write_size == 17'd0) begin
 				if(comms_mode == LOOPBACK) begin
+					// proc_ether_packet <= 1'b1;
 					state <= W5300_RECV_PROCESS;
 				end
 				else begin

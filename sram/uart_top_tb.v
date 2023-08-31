@@ -11,7 +11,7 @@ module uart_top_tb ();
 	parameter		c_CLKS_PER_BIT    = 234;    
 	parameter		c_BIT_PERIOD      = 8600;
 	// parameters used in the test bench
-	localparam 		PAYLOAD_SIZE = 13;
+	localparam 		PAYLOAD_SIZE = 10;
 	localparam 		UDP_PACKET_INFO_SIZE = 8;
 	localparam		DATA_BUS_WORD_LEN = 300;		// this has to be able to hold the data we want to simulate a read
 	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
