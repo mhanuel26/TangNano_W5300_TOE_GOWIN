@@ -26,7 +26,8 @@ This is a verilog FSM project for controlling Wiznet W5300 IC using SiPeed TangN
 
 * Summary of Current Development State
 
-	Tang Nano configures the W5300 IC on TOE Shield,  open an UDP socket and check for RECV interrupt to receive data. Currently received data can be either printed on serial console or loopback to peer. 
+	Tang Nano configures the W5300 IC on TOE Shield upon power up, it first reset the w5300 and send init routine for UDP socket.
+	Afterwards, you can send an UDP packet and get response back. 
 	
 * Summary of set up
 	+ The project uses [GOWIN IDE](https://www.gowinsemi.com/en/support/home/)
