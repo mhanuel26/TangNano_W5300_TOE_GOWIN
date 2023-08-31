@@ -51,13 +51,14 @@ localparam						W5300_SET_DEST_IP_PORT = 19;
 localparam						W5300_SEND_ADJ_SND_SIZE = 20;
 localparam						W5300_SEND_WRITE_FIFOR = 21;
 localparam						W5300_SEND_COMPLETED = 22;
-localparam						W5300_SET_SEND_CMD = 23;
-localparam						W5300_LOOPBACK_READ_COMPLETED = 24;
-localparam						W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO = 25;
-localparam						WAIT_W5300_RST = 26;
-localparam						RESET_W5300 = 27;
+localparam						W5300_SET_WRITE_SIZE = 23;
+localparam						W5300_SET_SEND_CMD = 24;
+localparam						W5300_LOOPBACK_READ_COMPLETED = 25;
+localparam						W5300_FIX_READ_RX_FIFO_AFTER_WRITE_TX_FIFO = 26;
+localparam						WAIT_W5300_RST = 27;
+localparam						RESET_W5300 = 28;
 
-// These are states isused just for testing some stuff
+// These are states used just for testing some stuff
 localparam						RECV_TEST_COMPLETED = 50;
 localparam						TEST_RESPONSE = 51;				
 
@@ -263,7 +264,7 @@ reg [7:0]						read_idx;
 wire [15:0]						W5300_16REG_RD;
 wire [15:0]						W5300_16REG_WR;
 reg [15:0]						data_16bits;
-reg [15:0]						w5300_regs [20:0];
+reg [15:0]						w5300_regs [20:0];					// buffer to hold the data when doing register write operations to control w5300 internals not data.
 reg [4:0]						reg_cnt;
 reg [4:0]						reg_cnt_sent;
 
@@ -892,7 +893,16 @@ begin
 				socket_recv_value[15:0] <= W5300_16REG_RD;		// GET full number here for received length
 				get_recv_done <= 2'd2;
 			end
-			else if(get_recv_done == 2'd2) begin
+			else if(get_recv_done == 2'd2) begin	
+				get_recv_done <= 2'd3;
+				// received length includes the UDP PACKET INFO length but for the SEND command we only set the payload length.
+				socket_tmit_send_size <= socket_recv_value - UDP_PACKET_INFO_LEN;	
+				if(socket_recv_value[0] == 1'b1) begin
+					// here we need to read one dummy register at the end as data size is odd
+					socket_recv_value <= socket_recv_value + 17'd1;
+				end
+			end
+			else if(get_recv_done == 2'd3) begin
 				if(socket_recv_value != 17'd0) begin
 					// move here into a state to process the packet info section of received frame first
 					state <= W5300_GET_PACKET_INFO;
@@ -1038,7 +1048,6 @@ begin
 				begin
 					proc_ether_packet <= 1'b1;						// disposition the next step in data processing of data
 					socket_tmit_write_size <= w5300_rx_index;		// here w5300_rx_index register should be always even as we are reading WORD from RX FIFO, so no need to adjust transmit size here
-					socket_tmit_send_size <= socket_tmit_send_size + w5300_rx_index;
 					tx_wr_index <= 8'd0;							// make the index 0 for handling the data copying process
 					state <= W5300_SEND_WRITE_FIFOR;
 					idle_to_next_state <= 1'b0;
@@ -1174,7 +1183,11 @@ begin
 				reg_cnt_sent <= 5'd0;					// Start sending Index 0 of w5300_regs
 				idle_to_next_state <= 1'b1;  			// move state into the one assigned to nextstate here after writing register
 				state <= W5300_WRITE_REG;
-				nextstate <= W5300_SET_SEND_CMD;		// move into state which will set the SEND command
+				nextstate <= W5300_SET_WRITE_SIZE;		// move into state which will set the SEND command
+				// calculate the write count of Sn_TX_FIFOR for odd numbers
+				if(socket_tmit_send_size[0] == 1'b1) begin	// if odd size
+					socket_tmit_write_size <= (socket_tmit_send_size + 17'd1) >> 1;
+				end
 			end
 			endcase
 		end
@@ -1184,6 +1197,18 @@ begin
 			idle_to_next_state <= 1'b0;
 			state <= W5300_SEND_WRITE_FIFOR;
 			tx_wr_index <= 8'd0;
+		end
+		W5300_SET_WRITE_SIZE:
+		begin
+		//set the transmit size in S0_TX_WRSR
+			address <= S0_TX_WRSR;
+			data_16bits <= {15'd0, socket_tmit_send_size[16]};
+			w5300_regs[0] <= socket_tmit_send_size[15:0];
+			reg_cnt <= 5'd1;						// we need to send one more register for WRITE SIZE REGISTER (17 bits)
+			reg_cnt_sent <= 5'd0;					// Start sending Index 0 of w5300_regs
+			idle_to_next_state <= 1'b1;
+			state <= W5300_WRITE_REG;
+			nextstate <= W5300_SET_SEND_CMD;
 		end
 		W5300_SEND_WRITE_FIFOR:
 		begin

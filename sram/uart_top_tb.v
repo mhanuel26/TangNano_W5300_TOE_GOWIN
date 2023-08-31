@@ -11,7 +11,7 @@ module uart_top_tb ();
 	parameter		c_CLKS_PER_BIT    = 234;    
 	parameter		c_BIT_PERIOD      = 8600;
 	// parameters used in the test bench
-	localparam 		PAYLOAD_SIZE = 200;
+	localparam 		PAYLOAD_SIZE = 13;
 	localparam 		UDP_PACKET_INFO_SIZE = 8;
 	localparam		DATA_BUS_WORD_LEN = 300;		// this has to be able to hold the data we want to simulate a read
 	localparam		CASE01 = 0;		// this case exercise the read, it first do a INIT routine, then receive a UDP packet using RECV Interrupt
@@ -321,9 +321,13 @@ module uart_top_tb ();
 					data_bus_16[16] <= (16'hff00 & PAYLOAD_SIZE) >> 8;  // UDP Byte Index 6	 - PACKET_LEN
 					data_bus_16[17] <= (16'h00ff & PAYLOAD_SIZE);    	// UDP Byte Index 7
 					for(k = 0; k < PAYLOAD_SIZE; k = k + 1) begin
-						data_bus_16[18+k] <= k;   	// DATA Byte Index 0  H
+						data_bus_16[18+k] <= k;   	// DATA Byte 
 					end
 					k = 18 + PAYLOAD_SIZE;
+					if(PAYLOAD_SIZE % 2) begin
+						data_bus_16[k] <= 8'd0;   	// padding the received DATA Byte 		
+						k = k + 1;
+					end
 					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR
 					k = k + 1;
 					data_bus_16[k] <= 8'h00;   	// This is the Read to S0_TX_FSR1
