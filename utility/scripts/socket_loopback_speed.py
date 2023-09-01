@@ -41,6 +41,7 @@ while(True):
     tx_count -= 1
     if tx_count == 0:
         end_tm = time.monotonic()
+        print("sucessfully transmit %d packets. Test done!" % TX_PACKETS_SEND)
         if(rx_count == TX_PACKETS_SEND):
             print("sucessfully received %d packets. Test done!" % rx_count)
         break
@@ -49,6 +50,6 @@ while(True):
         UDPServerSocket.sendto(data, (UDP_IP, UDP_PORT))
 
 loopback_time = end_tm-initial_tm
-loopback_data_ = PAYLOAD_SIZE*TX_PACKETS_SEND
+loopback_data_ = 2*PAYLOAD_SIZE*TX_PACKETS_SEND # transmitted + received data bytes
 print("Test Took %f ms" % (1000*loopback_time))
-print(f'{loopback_data_} loopback rate is {loopback_data_ / (loopback_time*(1000 * 1000)):3.1f} MB/s')
+print(f'{loopback_data_} loopback rate is {8*loopback_data_ / (loopback_time*(1000 * 1000)):3.1f} Mbps/s')
