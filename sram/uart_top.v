@@ -939,11 +939,14 @@ begin
 		begin
 			if(w5300_packet_info_idx == UDP_PACKET_INFO_LEN) begin
 				// set the destination port and ip from the peer data in MESSAGE-INFO section of RX packet
-				src_port <= {message_w5300_rx[4], message_w5300_rx[5]};   // Set the source port of received UDP packet
 				src_ip[0] <= message_w5300_rx[0];		// Assign peer ip address to source registers
 				src_ip[1] <= message_w5300_rx[1];
 				src_ip[2] <= message_w5300_rx[2];
 				src_ip[3] <= message_w5300_rx[3];
+				src_port <= {message_w5300_rx[4], message_w5300_rx[5]};   // Set the source port of received UDP packet
+				if(socket_tmit_send_size != {message_w5300_rx[6], message_w5300_rx[7]}) begin
+					socket_tmit_send_size <= {message_w5300_rx[6], message_w5300_rx[7]};
+				end
 				w5300_rx_index <= 0; 					// index for received data payload
 				idle_to_next_state <= 1'b0;				// important to keep this low to enter W5300_RECV_STATE first time or when reentering
 				state <= W5300_RECV_STATE;				// Now that we have already fetch the packet info, go to a state to get the actual UDP payload data.
